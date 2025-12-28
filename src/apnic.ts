@@ -1,12 +1,25 @@
+import { parseString } from "@fast-csv/parse";
+
 type WhoisEntry = { [key: string]: string | string[] | WhoisEntry[] };
+type GeofeedRow = {
+  prefix: string;
+  country: string;
+  region: string;
+  city: string;
+};
 
 export default async function apnic(ip: string) {
-  const response = await fetch(
+  const whoisResponse = await fetch(
     `https://wq.apnic.net/query?searchtext=${encodeURIComponent(ip)}`
   );
-  const json = await response.json();
+  const json = await whoisResponse.json();
   const geofeedUrl = findGeofeedUrl(json);
-  return geofeedUrl;
+  if (!geofeedUrl) return;
+
+  const geofeedResponse = await fetch(geofeedUrl);
+  const rows = await parseGeofeed(await geofeedResponse.text());
+  const match = findMatchingRow(ip, rows);
+  return match;
 }
 
 function findGeofeedUrl(json: WhoisEntry[]): string | undefined {
@@ -39,4 +52,31 @@ function findGeofeedUrl(json: WhoisEntry[]): string | undefined {
       }
     }
   }
+}
+
+function parseGeofeed(csv: string): Promise<GeofeedRow[]> {
+  return new Promise((resolve) => {
+    let rows: GeofeedRow[] = [];
+
+    parseString(csv, {
+      headers: ["prefix", "country", "region", "city"],
+      discardUnmappedColumns: true,
+    })
+      .on("error", (error) => console.error(error))
+      .on("data", (row) => {
+        if (row.five) console.log(row.five);
+        rows.push(row);
+      })
+      .on("end", () => resolve(rows));
+  });
+}
+
+function findMatchingRow(ip: string, rows: GeofeedRow[], cut: number = 0) {
+  const ipDelimeter = ip.includes(":") ? ":" : ".";
+  const splitIp = ip.split(ipDelimeter);
+  if (splitIp.length - cut < 1) return;
+  const checkString = splitIp.slice(0, splitIp.length - cut).join(ipDelimeter);
+  const found = rows.find((row) => row.prefix.startsWith(checkString));
+  if (found) return found;
+  return findMatchingRow(ip, rows, cut + 1);
 }
