@@ -13,7 +13,7 @@ type GeofeedRow = {
 };
 
 export default async function apnic(ip: string) {
-  const whoisResponse = await whoisIp(ip);
+  const whoisResponse = await whoisIp(ip, { timeout: 10_000 });
   const geofeedUrl = findGeofeedUrl(whoisResponse);
   if (!geofeedUrl) return;
 
@@ -79,10 +79,14 @@ function parseGeofeed(csv: string): Promise<GeofeedRow[]> {
 }
 
 function findMatchingRow(ip: string, rows: GeofeedRow[], cut: number = 0) {
-  const ipDelimeter = ip.includes(":") ? ":" : ".";
+  const ipDelimeter = ip.includes(":") ? "" : ".";
   const splitIp = ip.split(ipDelimeter);
   if (splitIp.length - cut < 1) return;
-  const checkString = splitIp.slice(0, splitIp.length - cut).join(ipDelimeter);
+  const checkString =
+    splitIp.slice(0, splitIp.length - cut).join(ipDelimeter) +
+    (ipDelimeter == "." && cut > 0
+      ? `.${new Array(cut).fill("0").join(".")}`
+      : "");
   const found = rows.find((row) => row.prefix.startsWith(checkString));
   if (found) return found;
   return findMatchingRow(ip, rows, cut + 1);
