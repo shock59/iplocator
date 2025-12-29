@@ -1,4 +1,7 @@
 import { parseString } from "@fast-csv/parse";
+import { countries, regions } from "./locations.js";
+import https from "node:https";
+import fetch from "node-fetch";
 
 type WhoisEntry = { [key: string]: string | string[] | WhoisEntry[] };
 type GeofeedRow = {
@@ -12,14 +15,36 @@ export default async function apnic(ip: string) {
   const whoisResponse = await fetch(
     `https://wq.apnic.net/query?searchtext=${encodeURIComponent(ip)}`
   );
-  const json = await whoisResponse.json();
+  const json = (await whoisResponse.json()) as WhoisEntry[];
   const geofeedUrl = findGeofeedUrl(json);
   if (!geofeedUrl) return;
 
-  const geofeedResponse = await fetch(geofeedUrl);
+  const agent = new https.Agent({ rejectUnauthorized: false });
+  const geofeedResponse = await fetch(geofeedUrl, { agent });
   const rows = await parseGeofeed(await geofeedResponse.text());
   const match = findMatchingRow(ip, rows);
-  return match;
+  if (!match) return;
+
+  let processed: {
+    country: string | undefined;
+    countryCode: string;
+    region: string | undefined;
+    regionCode: string;
+    city: string;
+    location: string;
+  } = {
+    country: countries.find((c) => c.iso == match.country)?.name,
+    countryCode: match.country,
+    region: regions.find((r) => r.iso == match.region)?.name,
+    regionCode: match.region,
+    city: match.city,
+    location: "",
+  };
+  processed.location = `${processed.city ? processed.city : ""}${
+    processed.region ? `, ${processed.region}` : ""
+  }${processed.country ? `, ${processed.country}` : ""}`;
+
+  return processed;
 }
 
 function findGeofeedUrl(json: WhoisEntry[]): string | undefined {

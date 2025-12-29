@@ -11,6 +11,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@fast-csv/parse": "^5.0.5"
+    "@fast-csv/parse": "^5.0.5",
+    "node-fetch": "^3.3.2"
   }
 }
