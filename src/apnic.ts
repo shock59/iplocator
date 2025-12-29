@@ -2,8 +2,9 @@ import { parseString } from "@fast-csv/parse";
 import { countries, regions } from "./locations.js";
 import https from "node:https";
 import fetch from "node-fetch";
+import { whoisIp } from "whoiser";
 
-type WhoisEntry = { [key: string]: string | string[] | WhoisEntry[] };
+type WhoisData = Awaited<ReturnType<typeof whoisIp>>;
 type GeofeedRow = {
   prefix: string;
   country: string;
@@ -12,11 +13,8 @@ type GeofeedRow = {
 };
 
 export default async function apnic(ip: string) {
-  const whoisResponse = await fetch(
-    `https://wq.apnic.net/query?searchtext=${encodeURIComponent(ip)}`
-  );
-  const json = (await whoisResponse.json()) as WhoisEntry[];
-  const geofeedUrl = findGeofeedUrl(json);
+  const whoisResponse = await whoisIp(ip);
+  const geofeedUrl = findGeofeedUrl(whoisResponse);
   if (!geofeedUrl) return;
 
   const agent = new https.Agent({ rejectUnauthorized: false });
@@ -47,34 +45,18 @@ export default async function apnic(ip: string) {
   return processed;
 }
 
-function findGeofeedUrl(json: WhoisEntry[]): string | undefined {
-  for (const entry of json) {
-    for (const key of Object.keys(entry)) {
-      if (key == "name" && entry[key] == "geofeed") {
-        const values = entry["values"];
-        if (
-          !(
-            Array.isArray(values) &&
-            values.length >= 1 &&
-            typeof values[0] == "string"
-          )
-        )
-          continue;
-        return values[0];
-      } else if (typeof entry[key] == "object") {
-        if (
-          Array.isArray(entry[key]) &&
-          entry[key].length >= 1 &&
-          typeof entry[key][0] == "string"
-        )
-          continue;
-        const response = findGeofeedUrl(
-          Array.isArray(entry[key])
-            ? (entry[key] as WhoisEntry[])
-            : [entry[key]]
-        );
-        if (response != undefined) return response;
-      }
+function findGeofeedUrl(data: WhoisData): string | undefined {
+  for (const key of Object.keys(data)) {
+    if (
+      typeof data[key] == "string" &&
+      (key == "geofeed" ||
+        (key == "Comment" && data[key].startsWith("Geofeed ")))
+    ) {
+      if (key == "geofeed") return data[key];
+      else return data[key].slice(8);
+    } else if (typeof data[key] == "object" && !Array.isArray(data[key])) {
+      const response = findGeofeedUrl(data[key] as WhoisData);
+      if (response != undefined) return response;
     }
   }
 }
